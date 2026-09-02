@@ -9,8 +9,6 @@ export function db() {
   return client;
 }
 
-// Tagged-template compatível com os módulos administrativos.
-// Mantém a criação da conexão centralizada e somente no servidor.
-export function sql(strings: TemplateStringsArray, ...values: unknown[]) {
-  return db()(strings, ...values);
-}
+// Alias do cliente para uso como tagged template: sql`select ... ${valor}`.
+// O tipo é preservado diretamente da biblioteca postgres.
+export const sql = db();
