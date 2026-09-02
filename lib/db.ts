@@ -4,8 +4,8 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 let client: ReturnType<typeof postgres> | null = null;
 
 export function db() {
-  const url = process.env.DATABASE_URL;
-  if (!url) throw new Error('DATABASE_URL não configurada');
+  const url = process.env.POSTGRES_URL || process.env.DATABASE_URL;
+  if (!url) throw new Error('POSTGRES_URL ou DATABASE_URL não configurada');
   if (!client) client = postgres(url, { max: 5, idle_timeout: 20 });
   return client;
 }
