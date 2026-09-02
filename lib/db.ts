@@ -9,6 +9,13 @@ export function db() {
   return client;
 }
 
-// Alias do cliente para uso como tagged template: sql`select ... ${valor}`.
-// O tipo é preservado diretamente da biblioteca postgres.
 export const sql = db();
+
+export type TenantContext={organizationId:string;profileId:string;role:string};
+export async function withTenant<T>(ctx:TenantContext,fn:(tx:any)=>Promise<T>){
+  if(!ctx.organizationId||!ctx.profileId||!ctx.role)throw new Error('Contexto de tenant inválido');
+  return db().begin(async tx=>{
+    await tx`select set_config('app.organization_id',${ctx.organizationId},true),set_config('app.profile_id',${ctx.profileId},true),set_config('app.role',${ctx.role},true)`;
+    return fn(tx);
+  });
+}
