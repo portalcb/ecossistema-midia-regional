@@ -1,12 +1,12 @@
 -- Multi-tenant RLS foundation. Authenticated application transactions set
 -- app.organization_id, app.profile_id and app.role before every query.
-create or replace function app_current_organization_id() returns uuid language sql stable as $$
+create or replace function app_current_organization_id() returns uuid language sql stable set search_path = '' as $$
   select nullif(current_setting('app.organization_id',true),'')::uuid
 $$;
-create or replace function app_current_profile_id() returns uuid language sql stable as $$
+create or replace function app_current_profile_id() returns uuid language sql stable set search_path = '' as $$
   select nullif(current_setting('app.profile_id',true),'')::uuid
 $$;
-create or replace function app_current_role() returns text language sql stable as $$
+create or replace function app_current_role() returns text language sql stable set search_path = '' as $$
   select nullif(current_setting('app.role',true),'')
 $$;
 
