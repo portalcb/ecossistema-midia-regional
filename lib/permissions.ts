@@ -1,18 +1,1 @@
-export const ROLE_PERMISSIONS = {
-  superadmin: ['*'],
-  admin: ['dashboard.read','articles.*','media.*','home.*','seo.*','leads.*','users.read','brand.*'],
-  editor_chefe: ['dashboard.read','articles.*','media.*','home.read','seo.*'],
-  editor_jornalista: ['dashboard.read','articles.create','articles.read','articles.update','media.create','media.read'],
-  revisor: ['dashboard.read','articles.read','articles.review','articles.approve'],
-  produtor_video: ['dashboard.read','media.*'],
-  comercial: ['dashboard.read','leads.*'],
-  financeiro: ['dashboard.read'],
-  publicidade: ['dashboard.read'],
-  suporte: ['dashboard.read','users.read'],
-  analista: ['dashboard.read']
-} as const;
-
-export function can(role: keyof typeof ROLE_PERMISSIONS, permission: string) {
-  const rules = ROLE_PERMISSIONS[role] as readonly string[];
-  return rules.includes('*') || rules.includes(permission) || rules.some(r => r.endsWith('.*') && permission.startsWith(r.slice(0,-1)));
-}
+import{requireSession}from'./auth';import{sql}from'./db';export const ROLE_PERMISSIONS={superadmin:['*'],admin:['dashboard.read','articles.*','media.*','home.*','seo.*','leads.*','users.read','brand.*','streaming.*'],editor_chefe:['dashboard.read','articles.*','media.*','home.read','seo.*'],editor_jornalista:['dashboard.read','articles.create','articles.read','articles.update','media.create','media.read'],revisor:['dashboard.read','articles.read','articles.review','articles.approve'],produtor_video:['dashboard.read','media.*','streaming.read','streaming.create','streaming.update'],comercial:['dashboard.read','leads.*'],financeiro:['dashboard.read'],publicidade:['dashboard.read'],suporte:['dashboard.read','users.read'],analista:['dashboard.read','streaming.read']}as const;export function can(role:keyof typeof ROLE_PERMISSIONS,permission:string){const rules=ROLE_PERMISSIONS[role]as readonly string[];return rules.includes('*')||rules.includes(permission)||rules.some(r=>r.endsWith('.*')&&permission.startsWith(r.slice(0,-1)))}export async function requirePermission(permission:string){const u=await requireSession();const role=String(u.role)as keyof typeof ROLE_PERMISSIONS;if(!ROLE_PERMISSIONS[role]||!can(role,permission))throw new Error('Permissão insuficiente');return u}export async function audit(u:{id:string;organizationId:string},action:string,entityType:string,entityId?:string|null,metadata:Record<string,unknown>={}){await sql`insert into audit_log(organization_id,profile_id,action,entity_type,entity_id,metadata) values(${u.organizationId},${u.id},${action},${entityType},${entityId||null},${JSON.stringify(metadata)}::jsonb)`}
