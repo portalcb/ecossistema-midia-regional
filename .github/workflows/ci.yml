@@ -1,7 +1,7 @@
-name: Phase 5 CI
+name: Phase 6 CI
 on:
   push:
-    branches: [phase-5]
+    branches: [phase-6]
   pull_request:
     branches: [main]
 jobs:
