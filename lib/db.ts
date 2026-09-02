@@ -21,9 +21,21 @@ export function bindTenantContext(ctx:TenantContext){
   tenantContext.enterWith(ctx);
 }
 
+async function resolveTenantContext():Promise<TenantContext>{
+  const current=tenantContext.getStore();
+  if(current)return current;
+
+  // AsyncLocalStorage created inside session() does not flow back to the
+  // calling Server Component. Revalidate the signed session here so every
+  // protected query still receives an authenticated tenant context.
+  const {session}=await import('./auth');
+  const user=await session();
+  if(!user)throw new Error('Sessão necessária para consulta protegida');
+  return {organizationId:user.organizationId,profileId:user.id,role:user.role};
+}
+
 export const sql = (async(strings: TemplateStringsArray, ...values: unknown[])=>{
-  const ctx=tenantContext.getStore();
-  if(!ctx)throw new Error('Consulta sem contexto de tenant');
+  const ctx=await resolveTenantContext();
   return db().begin(async tx=>{
     await tx`select set_config('app.organization_id',${ctx.organizationId},true),set_config('app.profile_id',${ctx.profileId},true),set_config('app.role',${ctx.role},true)`;
     await tx`set local role authenticated`;
