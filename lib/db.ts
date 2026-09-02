@@ -8,3 +8,9 @@ export function db() {
   if (!client) client = postgres(url, { max: 5, idle_timeout: 20 });
   return client;
 }
+
+// Tagged-template compatível com os módulos administrativos.
+// Mantém a criação da conexão centralizada e somente no servidor.
+export function sql(strings: TemplateStringsArray, ...values: unknown[]) {
+  return db()(strings, ...values);
+}
