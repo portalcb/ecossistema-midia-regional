@@ -1,1 +1,44 @@
-'use server';import{revalidatePath}from'next/cache';import{requireSession}from'@/lib/auth';import{sql}from'@/lib/db';async function context(){const u=await requireSession();const p=await sql`select email from profiles where id=${u.id} and organization_id=${u.organizationId} limit 1`;if(!p.length||!p[0].email)throw new Error('Perfil sem e-mail');const s=await sql`select id from subscribers where organization_id=${u.organizationId} and lower(email)=lower(${String(p[0].email)}) limit 1`;if(!s.length)throw new Error('Assinante não vinculado');return{u,subscriberId:String(s[0].id)}}async function canAccess(org:string,subscriber:string,series?:string,episode?:string){const rows=await sql`select e.id from streaming_entitlements e left join subscriptions sub on sub.id=e.subscription_id where e.organization_id=${org} and e.subscriber_id=${subscriber} and e.active=true and e.starts_at<=now() and (e.ends_at is null or e.ends_at>now()) and (e.subscription_id is null or sub.status='active') and (e.scope_type='catalog' or (e.scope_type='series' and e.series_id=${series||null}) or (e.scope_type='episode' and e.episode_id=${episode||null})) limit 1`;return rows.length>0}export async function toggleFavorite(f:FormData){const{u,subscriberId}=await context();const series=String(f.get('series_id')||'');if(!series)throw new Error('Série obrigatória');const sr=await sql`select id from streaming_series where id=${series} and organization_id=${u.organizationId} and status='published'`;if(!sr.length||!await canAccess(u.organizationId,subscriberId,series))throw new Error('Acesso não autorizado');const existing=await sql`select id from streaming_favorites where organization_id=${u.organizationId} and subscriber_id=${subscriberId} and series_id=${series}`;if(existing.length)await sql`delete from streaming_favorites where id=${existing[0].id} and organization_id=${u.organizationId}`;else await sql`insert into streaming_favorites(organization_id,subscriber_id,series_id) values(${u.organizationId},${subscriberId},${series})`;revalidatePath('/premium/catalogo')}export async function saveProgress(f:FormData){const{u,subscriberId}=await context();const episode=String(f.get('episode_id')||'');const position=Math.max(0,Math.floor(Number(f.get('position_seconds')||0)));if(!episode||!Number.isFinite(position))throw new Error('Progresso inválido');const ep=await sql`select e.id,e.duration_seconds,s.series_id from streaming_episodes e join streaming_seasons s on s.id=e.season_id where e.id=${episode} and e.organization_id=${u.organizationId} and e.status='published' limit 1`;if(!ep.length||!await canAccess(u.organizationId,subscriberId,String(ep[0].series_id),episode))throw new Error('Acesso não autorizado');const duration=Number(ep[0].duration_seconds||0);const completed=duration>0&&position>=Math.max(0,duration-15);await sql`insert into streaming_watch_history(organization_id,subscriber_id,episode_id,progress_seconds,completed,last_watched_at) values(${u.organizationId},${subscriberId},${episode},${position},${completed},now()) on conflict(subscriber_id,episode_id) do update set progress_seconds=excluded.progress_seconds,completed=excluded.completed,last_watched_at=now(),updated_at=now()`;await sql`insert into streaming_events(organization_id,subscriber_id,episode_id,event_type,position_seconds) values(${u.organizationId},${subscriberId},${episode},${completed?'complete':'progress'},${position})`;revalidatePath('/premium/catalogo')}
+'use server';
+import { revalidatePath } from 'next/cache';
+import { requireSession } from '@/lib/auth';
+import { sql } from '@/lib/db';
+import { canAccessPremiumContent, subscriberForProfile } from '@/lib/premium';
+
+async function context(){
+  const user=await requireSession();
+  const subscriber=await subscriberForProfile(user);
+  if(!subscriber)throw new Error('Assinante não vinculado');
+  return {user,subscriberId:String(subscriber.id)};
+}
+
+export async function toggleFavorite(formData:FormData){
+  const {user,subscriberId}=await context();
+  const seriesId=String(formData.get('series_id')||'');
+  if(!seriesId)throw new Error('Série obrigatória');
+  const rows=await sql`select id,premium from streaming_series where id=${seriesId} and organization_id=${user.organizationId} and status='published' limit 1`;
+  const series=rows[0];
+  if(!series||!await canAccessPremiumContent(user.organizationId,subscriberId,Boolean(series.premium),{seriesId}))throw new Error('Acesso não autorizado');
+  const existing=await sql`select id from streaming_favorites where organization_id=${user.organizationId} and subscriber_id=${subscriberId} and series_id=${seriesId}`;
+  if(existing.length)await sql`delete from streaming_favorites where id=${existing[0].id} and organization_id=${user.organizationId} and subscriber_id=${subscriberId}`;
+  else await sql`insert into streaming_favorites(organization_id,subscriber_id,series_id) values(${user.organizationId},${subscriberId},${seriesId})`;
+  revalidatePath('/premium/catalogo');
+}
+
+export async function saveProgress(formData:FormData){
+  const {user,subscriberId}=await context();
+  const episodeId=String(formData.get('episode_id')||'');
+  const requested=Math.floor(Number(formData.get('position_seconds')||0));
+  if(!episodeId||!Number.isFinite(requested)||requested<0)throw new Error('Progresso inválido');
+  const rows=await sql`select e.id,e.duration_seconds,e.premium episode_premium,s.series_id,sr.premium series_premium from streaming_episodes e join streaming_seasons s on s.id=e.season_id and s.organization_id=e.organization_id join streaming_series sr on sr.id=s.series_id and sr.organization_id=e.organization_id where e.id=${episodeId} and e.organization_id=${user.organizationId} and e.status='published' and s.status='published' and sr.status='published' limit 1`;
+  const episode=rows[0];
+  if(!episode)throw new Error('Episódio inválido');
+  const premium=Boolean(episode.episode_premium||episode.series_premium);
+  const seriesId=String(episode.series_id);
+  if(!await canAccessPremiumContent(user.organizationId,subscriberId,premium,{seriesId,episodeId}))throw new Error('Acesso não autorizado');
+  const duration=Math.max(0,Number(episode.duration_seconds||0));
+  const position=Math.min(requested,duration||86400,86400);
+  const completed=duration>0&&position>=Math.max(0,duration-15);
+  await sql`insert into streaming_watch_history(organization_id,subscriber_id,episode_id,progress_seconds,completed,last_watched_at) values(${user.organizationId},${subscriberId},${episodeId},${position},${completed},now()) on conflict(subscriber_id,episode_id) do update set progress_seconds=excluded.progress_seconds,completed=excluded.completed,last_watched_at=now(),updated_at=now()`;
+  await sql`insert into streaming_events(organization_id,subscriber_id,episode_id,event_type,position_seconds) values(${user.organizationId},${subscriberId},${episodeId},${completed?'complete':'progress'},${position})`;
+  revalidatePath('/premium/catalogo');
+}

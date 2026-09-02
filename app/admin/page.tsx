@@ -1,7 +1,7 @@
-import { db } from '@/lib/db';
+import { sql } from '@/lib/db';
 import { requireSession } from '@/lib/auth';
 export default async function Dashboard(){
- const s=await requireSession(); const sql=db();
+ const s=await requireSession();
  const [articles,leads,media,users]=await Promise.all([
   sql`select count(*)::int n from articles where organization_id=${s.organizationId} and deleted_at is null`,
   sql`select count(*)::int n from leads where organization_id=${s.organizationId}`,

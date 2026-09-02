@@ -2,7 +2,7 @@ import { SignJWT, jwtVerify } from 'jose';
 import { cookies } from 'next/headers';
 import { createHash, randomUUID } from 'crypto';
 import { redirect } from 'next/navigation';
-import { db } from './db';
+import { bindTenantContext, db } from './db';
 
 const COOKIE = 'mr_session';
 const HOURS = 8;
@@ -20,7 +20,7 @@ export async function createSession(user:{id:string;organizationId:string;role:s
   const sql = db();
   await sql`INSERT INTO sessions (id,organization_id,profile_id,token_hash,expires_at) VALUES (${sid},${user.organizationId},${user.id},${hashToken(token)},now()+interval '8 hours')`;
   const store = await cookies();
-  store.set(COOKIE,token,{httpOnly:true,secure:process.env.NODE_ENV==='production',sameSite:'lax',path:'/',maxAge:60*60*HOURS});
+  store.set(COOKIE,token,{httpOnly:true,secure:process.env.NODE_ENV==='production',sameSite:'strict',path:'/',maxAge:60*60*HOURS,priority:'high'});
 }
 
 export async function session() {
@@ -30,8 +30,10 @@ export async function session() {
     const {payload} = await jwtVerify(token,secret());
     const s = payload as {id:string;organizationId:string;role:string;sid:string};
     const sql = db();
-    const rows = await sql`SELECT id FROM sessions WHERE id=${s.sid} AND token_hash=${hashToken(token)} AND revoked_at IS NULL AND expires_at>now() LIMIT 1`;
+    if(!s.id||!s.organizationId||!s.role||!s.sid)return null;
+    const rows = await sql`SELECT se.id FROM sessions se JOIN profiles p ON p.id=se.profile_id AND p.organization_id=se.organization_id JOIN user_roles ur ON ur.profile_id=p.id JOIN roles r ON r.id=ur.role_id AND r.organization_id=se.organization_id WHERE se.id=${s.sid} AND se.profile_id=${s.id} AND se.organization_id=${s.organizationId} AND r.slug=${s.role} AND p.active=true AND se.token_hash=${hashToken(token)} AND se.revoked_at IS NULL AND se.expires_at>now() LIMIT 1`;
     if (!rows.length) return null;
+    bindTenantContext({organizationId:s.organizationId,profileId:s.id,role:s.role});
     return s;
   } catch { return null; }
 }
