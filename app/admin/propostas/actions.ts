@@ -1,0 +1,3 @@
+'use server';
+import{redirect}from'next/navigation';import{requireSession}from'@/lib/auth';import{sql}from'@/lib/db';
+export async function createProposal(f:FormData){const u=await requireSession();const title=String(f.get('title')||'').trim();if(!title)throw new Error('Título obrigatório');const company=String(f.get('company_id')||'')||null;const value=Math.max(0,Number(f.get('total_value')||0));const valid=String(f.get('valid_until')||'')||null;const number=`PROP-${Date.now().toString(36).toUpperCase()}`;await sql`insert into proposals(organization_id,company_id,number,title,total_value,valid_until,created_by) values(${u.organizationId},${company},${number},${title},${value},${valid},${u.id})`;redirect('/admin/propostas')}
